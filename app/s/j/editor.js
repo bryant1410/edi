@@ -8,6 +8,7 @@ return function(editor, status){
 	    	indentUnit: 8,
 	    	tabSize: 8,
 	    	indentWithTabs: true,
+		disableSpellcheck: true,
 		smartIndent: true
 	});
 
