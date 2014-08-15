@@ -1,0 +1,2 @@
+ source ~/src/github.com/davecheney/golang-crosscompile/crosscompile.bash
+ go-linux-amd64 build -o edi.linux .
