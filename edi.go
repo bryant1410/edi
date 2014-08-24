@@ -8,10 +8,6 @@ import (
 	"github.com/nsf/gothic"
 )
 
-const (
-	ROOT string = ".c" // The base frame where all widgets reside.
-)
-
 var SHELL_DEFAULTS = gothic.ArgMap{
 	"wrap":          "word",
 	"shell-bg":      "#2d2d2d",
@@ -35,8 +31,7 @@ type App struct {
 
 // NewApp creates a new Tcl/Tk command and editor windows.
 func NewApp(name string) (*App, error) {
-	ini := fmt.Sprintf("package require Tk; wm title . %s", name)
-	ir := gothic.NewInterpreter(ini)
+	ir := gothic.NewInterpreter("package require Tk")
 	app := App{
 		ir: ir,
 		shells: make(map[int]*Shell),
@@ -46,11 +41,7 @@ func NewApp(name string) (*App, error) {
 	app.opts = make(gothic.ArgMap)
 	updateArgs(app.opts, SHELL_DEFAULTS)
 
-	shell, err := NewShell(ir, SHELL_DEFAULTS)
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	app.shells[shell.Id] = shell
+	app.New(true)
 
 	return &app, nil
 }
@@ -58,6 +49,18 @@ func NewApp(name string) (*App, error) {
 // Wait executes the Tcl/Tk event loop and waits for it to close.
 func (a *App) Wait() {
 	<-a.ir.Done
+}
+
+func (a *App) New(root bool) {
+	shell, err := NewShell(a.ir, SHELL_DEFAULTS, root)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+	a.shells[shell.Id] = shell
+}
+
+func (a *App) TCLNew() {
+	a.New(false)
 }
 
 func (a *App) TCLExec(id int) {
