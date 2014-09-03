@@ -2,9 +2,9 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"log"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -12,84 +12,49 @@ import (
 	"github.com/satran/edi/utils"
 )
 
+// Prefixes for all the widgets
 const (
-	toplevel     string = "w"
-	shPrefix     string = "shell"
-	inputPrefix  string = "input"
-	promptPrefix string = "prompt"
-	inputVar     string = "inputvar"
-	promptVar    string = "promptvar"
+	shellP  string = "shell"
+	editorP string = "editor"
+	inputP  string = "input"
+	promptP string = "prompt"
+)
 
+// Prefixes for widget variables.
+const (
+	inputV  string = "inputvar"
+	promptV string = "promptvar"
+)
+
+const (
 	default_prompt string = "» "
 )
 
-var (
-	shCount  *utils.Counter
-	cmdCount *utils.Counter
-)
+// Regex for splitting command and arguments.
+var cmdRegex = regexp.MustCompile("'.+'|\".+\"|\\S+")
+
+var cmdCount *utils.Counter
 
 func init() {
-	shCount = utils.NewCounter()
 	cmdCount = utils.NewCounter()
 }
 
 type Shell struct {
-	Id         int
-	ir         *gothic.Interpreter
-	toplevel   string
-	ShellName  string
-	PromptName string
-	InputName  string
-	PromptVar  string
-	InputVar   string
-	PS1        string
-}
-
-func NewShell(ir *gothic.Interpreter, options gothic.ArgMap, root bool) (*Shell, error) {
-	id := shCount.Inc()
-	var tl string
-	if !root {
-		tl = fmt.Sprintf(".%s%d", toplevel, id)
-	}
-	var s Shell = Shell{
-		Id:         id,
-		ir:         ir,
-		toplevel:   tl,
-		ShellName:  fmt.Sprintf("%s.%s", tl, shPrefix),
-		PromptName: fmt.Sprintf("%s.%s", tl, promptPrefix),
-		InputName:  fmt.Sprintf("%s.%s", tl, inputPrefix),
-		PromptVar:  fmt.Sprintf("%s%d", promptVar, id),
-		InputVar:   fmt.Sprintf("%s%d", inputVar, id),
-		PS1:        default_prompt,
-	}
-
-	options["shell"] = s.ShellName
-	options["prompt"] = s.PromptName
-	options["input"] = s.InputName
-	options["promptvar"] = s.PromptVar
-	options["inputvar"] = s.InputVar
-	options["id"] = id
-	options["prompt-value"] = s.PS1
-	options["toplevel"] = strings.Trim(s.toplevel, ".")
-
-	if !root {
-		err := ir.Eval(`tk::toplevel %{0}`, s.toplevel)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	err := ir.Eval(newShell, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return &s, nil
+	Id        int
+	ir        *gothic.Interpreter
+	name      string
+	editor    string
+	prompt    string
+	input     string
+	promptVar string
+	inputVar  string
+	ps1       string
+	col       *Col
 }
 
 // CurrentLineNo returns the current line number.
 func (s *Shell) CurrentLineNo() (int, error) {
-	r, err := s.ir.EvalAsString("%{0} index insert", s.ShellName)
+	r, err := s.ir.EvalAsString("%{0} index insert", s.editor)
 	if err != nil {
 		return -1, err
 	}
@@ -101,7 +66,7 @@ func (s *Shell) CurrentLineNo() (int, error) {
 }
 
 func (s *Shell) Line(lineno int) string {
-	line, err := s.ir.EvalAsString(`%{0} get %{1}.0 %{1}.end`, s.ShellName, lineno)
+	line, err := s.ir.EvalAsString(`%{0} get %{1}.0 %{1}.end`, s.editor, lineno)
 	if err != nil {
 		log.Println("Error fetching line", err)
 		return ""
@@ -111,7 +76,7 @@ func (s *Shell) Line(lineno int) string {
 
 // CurrentLine returns the current line.
 func (s *Shell) CurrentLine() string {
-	line, err := s.ir.EvalAsString(`%{0} get "insert linestart" "insert lineend"`, s.ShellName)
+	line, err := s.ir.EvalAsString(`%{0} get "insert linestart" "insert lineend"`, s.editor)
 	if err != nil {
 		log.Println("Error fetching line", err)
 		return ""
@@ -120,13 +85,13 @@ func (s *Shell) CurrentLine() string {
 }
 
 func (s *Shell) Exec() {
-	line, err := s.ir.EvalAsString(`set %{0}`, s.InputVar)
+	line, err := s.ir.EvalAsString(`set %{0}`, s.inputVar)
 	if err != nil {
 		log.Println("Error fetching prompt text", err)
 		return
 	}
 	// Get the last line number.
-	linestr, err := s.ir.EvalAsString(`%{0} index end`, s.ShellName)
+	linestr, err := s.ir.EvalAsString(`%{0} index end`, s.editor)
 	if err != nil {
 		log.Println("Error fetching lineno ", err)
 		return
@@ -141,13 +106,13 @@ func (s *Shell) Exec() {
 		return
 	}
 	go s.run(cmd, line)
-	s.ir.Eval(`set %{0} ""`, s.InputVar)
+	s.ir.Eval(`set %{0} ""`, s.inputVar)
 }
 
 func (s *Shell) setId(id int, lineno int, line string) error {
 	curr := s.Line(lineno)
 	if curr != "" {
-		err := s.ir.Eval("%{0} insert %{1}.end {\n}", s.ShellName, lineno)
+		err := s.ir.Eval("%{0} insert %{1}.end {\n}", s.editor, lineno)
 		if err != nil {
 			return err
 		}
@@ -156,39 +121,39 @@ func (s *Shell) setId(id int, lineno int, line string) error {
 
 	// Inserting the clickable prompt
 	if err := s.ir.Eval("%{0} insert %{1}.0 {%{2}} toggle%{3}",
-		s.ShellName, lineno, s.PS1, id); err != nil {
+		s.editor, lineno, s.ps1, id); err != nil {
 		return err
 	}
 	// The event which handles hiding and showing the output
 	if err := s.ir.Eval(`%{0} tag bind toggle%{2} <1> {edi::Toggle %{1} %{2}; break}`,
-		s.ShellName, s.Id, id); err != nil {
+		s.editor, s.Id, id); err != nil {
 		return err
 	}
 
 	// Insert the command
 	if err := s.ir.Eval("%{0} insert %{1}.end {%{2}\n} cmd%{3}",
-		s.ShellName, lineno, line, id); err != nil {
+		s.editor, lineno, line, id); err != nil {
 		return err
 	}
 
 	// Create the output tag
 	if err := s.ir.Eval("%{0} insert %{1}.end {\n} out%{2}",
-		s.ShellName, lineno, id); err != nil {
+		s.editor, lineno, id); err != nil {
 		return err
 	}
-	return s.ir.Eval("%{0} tag add cmd-%{1} %{2}.0 %{2}.end", s.ShellName, id, lineno+1)
+	return s.ir.Eval("%{0} tag add cmd-%{1} %{2}.0 %{2}.end", s.editor, id, lineno+1)
 }
 
 func (s *Shell) Toggle(id int) {
-	toggled, err := s.ir.EvalAsBool("%{0} tag cget out%{1} -elide", s.ShellName, id)
+	toggled, err := s.ir.EvalAsBool("%{0} tag cget out%{1} -elide", s.editor, id)
 	if err != nil {
 		// When initially the tag is not toggled it returns a ""
 		toggled = false
 	}
 	if toggled {
-		s.ir.Eval("%{0} tag configure out%{1} -elide false", s.ShellName, id)
+		s.ir.Eval("%{0} tag configure out%{1} -elide false", s.editor, id)
 	} else {
-		s.ir.Eval("%{0} tag configure out%{1} -elide true", s.ShellName, id)
+		s.ir.Eval("%{0} tag configure out%{1} -elide true", s.editor, id)
 	}
 }
 
@@ -196,6 +161,10 @@ func (s *Shell) run(id int, text string) {
 	log.Println("Executing ", text)
 	var oscmd *exec.Cmd
 	parsed := cmdRegex.FindAllString(text, -1)
+
+	for i, _ := range parsed {
+		parsed[i] = strings.Trim(parsed[i], "'\"")
+	}
 
 	if len(parsed) < 1 {
 		return
@@ -244,7 +213,7 @@ func (s *Shell) readAndPush(id int, reader *bufio.Reader) {
 }
 
 func (s *Shell) Append(id int, line string) {
-	err := s.ir.Eval("%{0} insert out%{1}.last %{2%q} out%{1}", s.ShellName, id, line)
+	err := s.ir.Eval("%{0} insert out%{1}.last %{2%q} out%{1}", s.editor, id, line)
 	if err != nil {
 		log.Println(err)
 	}
