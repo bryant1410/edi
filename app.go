@@ -139,6 +139,19 @@ func (a *App) TCLNewCol(colid int) {
 	a.NewCol(window)
 }
 
+// TCLContext handles right/context clicks
+func (a *App) TCLContext(shellId, x, y int) {
+	sh, ok := a.Shells[shellId]
+	if !ok {
+		return
+	}
+	line := sh.Selected()
+	if line == "" {
+		line = sh.LineUnderCursor(x, y)
+	}
+	log.Println(line)
+}
+
 type Col struct {
 	Id     int
 	Name   string

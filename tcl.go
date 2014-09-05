@@ -23,6 +23,7 @@ grid [text %{editor}] -row 0 -column 0 -sticky nwes -columnspan 2
 bind %{editor} <Control-KeyPress-n> {edi::New %{col-id}}
 bind %{editor} <Control-KeyPress-N> {edi::NewCol %{col-id}}
 bind %{editor} <Control-space> {focus %{input}}
+bind %{editor} <ButtonRelease-2> {edi::Context %{id} %x %y; break}
 
 # Shell prompt label
 grid [label %{prompt} -text %{ps1}] -row 1 -column 0 -sticky we

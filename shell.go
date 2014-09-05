@@ -84,6 +84,47 @@ func (s *Shell) CurrentLine() string {
 	return line
 }
 
+// Selected returns the selected text if text is selected.
+func (s *Shell) Selected() string {
+	sel, err := s.ir.EvalAsInt(`llength [%{0} tag ranges sel]`, s.editor)
+	if err != nil {
+		log.Println("Can't find the selected tag, ", err)
+		return ""
+	}
+	if sel != 0 {
+		line, err := s.ir.EvalAsString(`%{0} get sel.first sel.last`, s.editor)
+		if err != nil {
+			log.Println("Can't get the selected text, ", err)
+			return ""
+		}
+		return line
+	}
+	return ""
+}
+
+// LineUnderCursor returns the line under the cursor
+func (s *Shell) LineUnderCursor(x, y int) string{
+	// Set a temporary mark so we can move the cursor back to the original insert position.
+	err := s.ir.Eval(`%{0} mark set orig-insert insert`, s.editor)
+	if err != nil {
+		log.Println("Cant set the original position", err)
+		return ""
+	}
+	// Move the cursor to the position under x and y
+	err = s.ir.Eval(`tk::TextButton1 %{0} %{1} %{2}`, s.editor, x, y)
+	if err != nil {
+		log.Println("Cant move to line under cursor ", err)
+		return ""
+	}
+	line := s.CurrentLine()
+	err = s.ir.Eval(`%{0} mark set insert orig-insert`, s.editor)
+	if err != nil {
+		log.Println("Cant set the original position", err)
+		return ""
+	}
+	return line
+}
+
 func (s *Shell) Exec() {
 	line, err := s.ir.EvalAsString(`set %{0}`, s.inputVar)
 	if err != nil {
